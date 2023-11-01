@@ -1,6 +1,7 @@
 import json
-import logging.config
+import logging
 from pathlib import Path
+
 
 
 def load_logging_config(logging_file: Path):
