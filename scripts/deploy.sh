@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 
-
 function increment_version() {
     local version=$1
     local increment_type=$2
 
+    # Extract only the version number part after the colon
+    local version_number=${version#*:}
+
     local -a version_parts
-    IFS='.' read -ra version_parts <<< "$version"
+    IFS='.' read -ra version_parts <<< "$version_number"
 
     if [[ $increment_type == "major" ]]; then
         version_parts[0]=$((version_parts[0] + 1))
@@ -15,8 +17,9 @@ function increment_version() {
         version_parts[1]=$((version_parts[1] + 1))
     fi
 
-    # Join the version parts back together and return the result
-    local new_version="${version_parts[*]}"
+    # Reconstruct the service name and version
+    local service_name=${version%%:*}
+    local new_version="${service_name}:${version_parts[*]}"
     echo "${new_version// /.}"
 }
 
@@ -31,20 +34,23 @@ function deploy_to_registry() {
       return 1
     fi
 
-    current_version=$(<"$version_file")
-
+    current_version=$(<"$VERSION_FILE")
+    local service_name=${current_version%%:*}
     local new_version
     new_version=$(increment_version "$current_version" "$increment_type")
-    echo "$new_version" > "$version_file"
-    docker build -t "my-service:$new_version" ../../
+
+    # Extract only the version number part for Docker tagging
+    local new_version_number=${new_version#*:}
+
+    echo "$new_version" > "$VERSION_FILE"
+    docker build -t "${service_name}:${new_version_number}" ../../
     local registry_url="localhost:5000"
-    docker tag "my-service:$new_version" "$registry_url/my-service:$new_version"
-    docker push "$registry_url/my-service:$new_version"
+    docker tag "${service_name}:${new_version_number}" "$registry_url/${service_name}:${new_version_number}"
+    docker push "$registry_url/${service_name}:${new_version_number}"
 
-
-    git add "$version_file"
-    git commit -m "Bump version to $new_version"
-    git tag "version-$new_version"
+    git add "$VERSION_FILE"
+    git commit -m "Bump version to ${service_name}:${new_version_number}"
+    git tag "${service_name}-version-${new_version_number}"
     git push origin master --tags
 }
 
