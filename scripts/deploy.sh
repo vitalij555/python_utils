@@ -23,7 +23,6 @@ function increment_version() {
     echo "${new_version// /.}"
 }
 
-
 function deploy_to_registry() {
     local VERSION_FILE="./version"
     local increment_type=$1  # major or minor
@@ -36,22 +35,36 @@ function deploy_to_registry() {
 
     current_version=$(<"$VERSION_FILE")
     local service_name=${current_version%%:*}
-    local new_version
-    new_version=$(increment_version "$current_version" "$increment_type")
+    local current_version_number=${current_version#*:}
+    local latest_tag_version=$(git describe --tags --match "${service_name}-version-*" --abbrev=0 2>/dev/null | sed "s/${service_name}-version-//")
+    local registry_url="192.168.49.2:32615"
+    local image_exists=$(docker image inspect "$registry_url/${service_name}:${latest_tag_version}" > /dev/null 2>&1 && echo "yes" || echo "no")
 
-    # Extract only the version number part for Docker tagging
-    local new_version_number=${new_version#*:}
+    if [[ "${current_version_number}" != "${latest_tag_version}" || "${image_exists}" == "no" ]]; then
+        # There have been commits since the last tag, or the image does not exist in the registry
+        local new_version
+        new_version=$(increment_version "$current_version" "$increment_type")
 
-    echo "$new_version" > "$VERSION_FILE"
-    docker build -t "${service_name}:${new_version_number}" ../../
-    local registry_url="localhost:5000"
-    docker tag "${service_name}:${new_version_number}" "$registry_url/${service_name}:${new_version_number}"
-    docker push "$registry_url/${service_name}:${new_version_number}"
+        # Extract only the version number part for Docker tagging
+        local new_version_number=${new_version#*:}
 
-    git add "$VERSION_FILE"
-    git commit -m "Bump version to ${service_name}:${new_version_number}"
-    git tag "${service_name}-version-${new_version_number}"
-    git push origin master --tags
+        echo "$new_version" > "$VERSION_FILE"
+        docker build -t "${service_name}:${new_version_number}" .
+
+        docker tag "${service_name}:${new_version_number}" "$registry_url/${service_name}:${new_version_number}"
+        docker push "$registry_url/${service_name}:${new_version_number}"
+
+        # Only add, commit, tag, and push if a new version was actually created
+        if [[ "${current_version_number}" != "${latest_tag_version}" ]]; then
+            git add "$VERSION_FILE"
+            git commit -m "Bump version to ${service_name}:${new_version_number}"
+            git tag "${service_name}-version-${new_version_number}"
+            git push origin master --tags
+        fi
+    else
+        # No new commits since the last tag and the image exists in the registry
+        echo "No new commits since the last version tag and the image exists in the registry. Skipping build and push."
+    fi
 }
 
 #private
@@ -62,33 +75,35 @@ function show_help() {
     echo "   --help, -h    Show help"
 }
 
-while :; do
-    case "$1" in
-    -h|--help)
-        show_help
-        exit 0
-        ;;
-    -i)
-        if [ "$2" ]; then
-            increment_type=$2
-            shift
-        else
-            echo "Error: -i requires a non-empty option argument."
-            show_help
-            exit 1
-        fi
-        ;;
-    *)
-        break
-        ;;
-    esac
-    shift
-done
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  while :; do
+      case "$1" in
+      -h|--help)
+          show_help
+          exit 0
+          ;;
+      -i)
+          if [ "$2" ]; then
+              increment_type=$2
+              shift
+          else
+              echo "Error: -i requires a non-empty option argument."
+              show_help
+              exit 1
+          fi
+          ;;
+      *)
+          break
+          ;;
+      esac
+      shift
+  done
 
-if [ -z "$increment_type" ]; then
-    echo "Error: Increment type is required"
-    show_help
-    exit 1
+  if [ -z "$increment_type" ]; then
+      echo "Error: Increment type is required"
+      show_help
+      exit 1
+  fi
+
+  deploy_to_registry "$increment_type"
 fi
-
-deploy_to_registry "$increment_type"
