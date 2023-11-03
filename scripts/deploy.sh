@@ -40,6 +40,9 @@ function deploy_to_registry() {
     local registry_url="192.168.49.2:32615"
     local image_exists=$(docker image inspect "$registry_url/${service_name}:${latest_tag_version}" > /dev/null 2>&1 && echo "yes" || echo "no")
 
+    echo "Latest tag detected: ${latest_tag_version}"
+
+
     if [[ "${current_version_number}" != "${latest_tag_version}" || "${image_exists}" == "no" ]]; then
         # There have been commits since the last tag, or the image does not exist in the registry
         local new_version
@@ -75,6 +78,7 @@ function show_help() {
     echo "   --help, -h    Show help"
 }
 
+# here we preven this code to be run via "source"
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   while :; do
       case "$1" in
